@@ -6,9 +6,10 @@ import os
 import sys
 import threading
 import tkinter as tk
+from dataclasses import dataclass
 from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
-from typing import Any
+from typing import Any, Literal
 
 import requests
 from dotenv import load_dotenv, set_key
@@ -16,6 +17,206 @@ from dotenv import load_dotenv, set_key
 SCRIPT_DIR = Path(__file__).resolve().parent
 ENV_PATH = SCRIPT_DIR / ".env"
 GITHUB_API = "https://api.github.com"
+
+ThemeMode = Literal["auto", "dark", "light"]
+SortColumn = Literal["name", "status", "updated"]
+
+SORTABLE_COLUMNS: frozenset[SortColumn] = frozenset({"name", "status", "updated"})
+COLUMN_LABELS: dict[str, str] = {
+    "name": "Repository",
+    "description": "Description",
+    "status": "Status",
+    "updated": "Last Updated",
+    "stars": "Stars",
+}
+
+
+@dataclass(frozen=True)
+class ThemeColors:
+    bg: str
+    surface: str
+    surface_alt: str
+    text: str
+    text_muted: str
+    border: str
+    accent: str
+    accent_hover: str
+    heading_bg: str
+    heading_text: str
+    row_alt: str
+    scrollbar: str
+
+
+LIGHT_THEME = ThemeColors(
+    bg="#f6f8fa",
+    surface="#ffffff",
+    surface_alt="#f6f8fa",
+    text="#24292f",
+    text_muted="#57606a",
+    border="#d0d7de",
+    accent="#0969da",
+    accent_hover="#0550ae",
+    heading_bg="#f6f8fa",
+    heading_text="#24292f",
+    row_alt="#f6f8fa",
+    scrollbar="#d0d7de",
+)
+
+DARK_THEME = ThemeColors(
+    bg="#0d1117",
+    surface="#161b22",
+    surface_alt="#1c2128",
+    text="#e6edf3",
+    text_muted="#8b949e",
+    border="#30363d",
+    accent="#1f6feb",
+    accent_hover="#388bfd",
+    heading_bg="#21262d",
+    heading_text="#e6edf3",
+    row_alt="#1c2128",
+    scrollbar="#484f58",
+)
+
+
+def is_system_dark_mode() -> bool:
+    if sys.platform == "win32":
+        try:
+            import winreg
+
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            ) as key:
+                value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+                return value == 0
+        except OSError:
+            pass
+    return False
+
+
+def load_theme_mode() -> ThemeMode:
+    load_dotenv(ENV_PATH)
+    mode = os.getenv("THEME", "auto").strip().lower()
+    if mode in ("dark", "light", "auto"):
+        return mode  # type: ignore[return-value]
+    return "auto"
+
+
+def save_theme_mode(mode: ThemeMode) -> None:
+    ENV_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if not ENV_PATH.exists():
+        ENV_PATH.touch()
+    set_key(ENV_PATH, "THEME", mode)
+
+
+def resolve_dark_mode(mode: ThemeMode) -> bool:
+    if mode == "dark":
+        return True
+    if mode == "light":
+        return False
+    return is_system_dark_mode()
+
+
+def apply_theme(root: tk.Tk, style: ttk.Style, dark: bool) -> ThemeColors:
+    colors = DARK_THEME if dark else LIGHT_THEME
+    root.configure(bg=colors.bg)
+
+    style.theme_use("clam")
+    style.configure(".", background=colors.bg, foreground=colors.text)
+    style.configure("TFrame", background=colors.bg)
+    style.configure("Surface.TFrame", background=colors.surface)
+    style.configure(
+        "TLabel",
+        background=colors.bg,
+        foreground=colors.text,
+    )
+    style.configure(
+        "Muted.TLabel",
+        background=colors.bg,
+        foreground=colors.text_muted,
+    )
+    style.configure(
+        "Heading.TLabel",
+        background=colors.bg,
+        foreground=colors.text,
+    )
+    style.configure(
+        "TButton",
+        background=colors.surface_alt,
+        foreground=colors.text,
+        bordercolor=colors.border,
+        focuscolor=colors.accent,
+        padding=(10, 4),
+    )
+    style.map(
+        "TButton",
+        background=[("active", colors.border), ("pressed", colors.border)],
+        foreground=[("disabled", colors.text_muted)],
+    )
+    style.configure(
+        "Accent.TButton",
+        background=colors.accent,
+        foreground="#ffffff",
+        bordercolor=colors.accent,
+    )
+    style.map(
+        "Accent.TButton",
+        background=[
+            ("active", colors.accent_hover),
+            ("pressed", colors.accent_hover),
+        ],
+    )
+    style.configure(
+        "Treeview",
+        background=colors.surface,
+        foreground=colors.text,
+        fieldbackground=colors.surface,
+        bordercolor=colors.border,
+        lightcolor=colors.border,
+        darkcolor=colors.border,
+        rowheight=28,
+    )
+    style.configure(
+        "Treeview.Heading",
+        background=colors.heading_bg,
+        foreground=colors.heading_text,
+        bordercolor=colors.border,
+        relief="flat",
+        padding=(6, 4),
+    )
+    style.map(
+        "Treeview",
+        background=[("selected", colors.accent)],
+        foreground=[("selected", "#ffffff")],
+    )
+    style.map(
+        "Treeview.Heading",
+        background=[("active", colors.surface_alt)],
+    )
+    style.configure(
+        "Vertical.TScrollbar",
+        background=colors.surface_alt,
+        troughcolor=colors.bg,
+        bordercolor=colors.border,
+        arrowcolor=colors.text_muted,
+    )
+    style.configure(
+        "Horizontal.TScrollbar",
+        background=colors.surface_alt,
+        troughcolor=colors.bg,
+        bordercolor=colors.border,
+        arrowcolor=colors.text_muted,
+    )
+    style.map(
+        "Vertical.TScrollbar",
+        background=[("active", colors.scrollbar)],
+    )
+    style.map(
+        "Horizontal.TScrollbar",
+        background=[("active", colors.scrollbar)],
+    )
+
+    return colors
 
 
 def load_github_handle() -> str | None:
@@ -109,31 +310,77 @@ def fetch_repositories(handle: str, token: str | None) -> list[dict[str, Any]]:
 
 
 class GitHubReposApp:
-    def __init__(self, root: tk.Tk, handle: str) -> None:
+    def __init__(self, root: tk.Tk, handle: str, theme_mode: ThemeMode) -> None:
         self.root = root
         self.handle = handle
+        self.theme_mode = theme_mode
+        self.dark_mode = resolve_dark_mode(theme_mode)
+        self.style = ttk.Style(root)
+        self.colors = apply_theme(root, self.style, self.dark_mode)
+
         self.root.title(f"GitHub Repositories — @{handle}")
         self.root.geometry("1100x600")
         self.root.minsize(800, 400)
+        self.repos: list[dict[str, Any]] = []
+        self.sort_column: SortColumn = "updated"
+        self.sort_reverse = True
 
         self._build_ui()
         self._load_repositories()
+
+    def _toggle_theme(self) -> None:
+        self.dark_mode = not self.dark_mode
+        self.theme_mode = "dark" if self.dark_mode else "light"
+        save_theme_mode(self.theme_mode)
+        self.colors = apply_theme(self.root, self.style, self.dark_mode)
+        self.tree.tag_configure("even", background=self.colors.surface)
+        self.tree.tag_configure("odd", background=self.colors.row_alt)
+        self.theme_button.configure(text=self._theme_button_label())
+        self.heading_label.configure(style="Heading.TLabel")
+        self.status_label.configure(style="Muted.TLabel")
+        self._refresh_row_tags()
+
+    def _theme_button_label(self) -> str:
+        return "Light mode" if self.dark_mode else "Dark mode"
+
+    def _refresh_row_tags(self) -> None:
+        for index, item in enumerate(self.tree.get_children()):
+            url_tags = self.tree.item(item, "tags")
+            url = url_tags[0] if url_tags else ""
+            row_tag = "even" if index % 2 == 0 else "odd"
+            self.tree.item(item, tags=(url, row_tag))
 
     def _build_ui(self) -> None:
         toolbar = ttk.Frame(self.root, padding=(8, 8, 8, 0))
         toolbar.pack(fill=tk.X)
 
-        ttk.Label(toolbar, text=f"@{self.handle}", font=("Segoe UI", 11, "bold")).pack(
-            side=tk.LEFT
+        self.heading_label = ttk.Label(
+            toolbar,
+            text=f"@{self.handle}",
+            style="Heading.TLabel",
+            font=("Segoe UI", 11, "bold"),
         )
+        self.heading_label.pack(side=tk.LEFT)
+
+        self.theme_button = ttk.Button(
+            toolbar,
+            text=self._theme_button_label(),
+            command=self._toggle_theme,
+        )
+        self.theme_button.pack(side=tk.RIGHT, padx=(8, 0))
+
         ttk.Button(toolbar, text="Refresh", command=self._load_repositories).pack(
             side=tk.RIGHT
         )
 
         self.status_var = tk.StringVar(value="Loading repositories...")
-        ttk.Label(self.root, textvariable=self.status_var, padding=(8, 4)).pack(
-            anchor=tk.W
+        self.status_label = ttk.Label(
+            self.root,
+            textvariable=self.status_var,
+            style="Muted.TLabel",
+            padding=(8, 4),
         )
+        self.status_label.pack(anchor=tk.W)
 
         table_frame = ttk.Frame(self.root, padding=8)
         table_frame.pack(fill=tk.BOTH, expand=True)
@@ -145,11 +392,7 @@ class GitHubReposApp:
             show="headings",
             selectmode="browse",
         )
-        self.tree.heading("name", text="Repository")
-        self.tree.heading("description", text="Description")
-        self.tree.heading("status", text="Status")
-        self.tree.heading("updated", text="Last Updated")
-        self.tree.heading("stars", text="Stars")
+        self._configure_column_headings()
 
         self.tree.column("name", width=200, minwidth=120, stretch=False)
         self.tree.column("description", width=480, minwidth=200)
@@ -167,16 +410,58 @@ class GitHubReposApp:
         table_frame.rowconfigure(0, weight=1)
         table_frame.columnconfigure(0, weight=1)
 
+        self.tree.tag_configure("even", background=self.colors.surface)
+        self.tree.tag_configure("odd", background=self.colors.row_alt)
         self.tree.bind("<Double-1>", self._open_selected_repo)
+
+    def _configure_column_headings(self) -> None:
+        for column, label in COLUMN_LABELS.items():
+            text = label
+            if column == self.sort_column:
+                text += " ▼" if self.sort_reverse else " ▲"
+            if column in SORTABLE_COLUMNS:
+                self.tree.heading(
+                    column,
+                    text=text,
+                    command=lambda col=column: self._sort_by(col),  # type: ignore[arg-type]
+                )
+            else:
+                self.tree.heading(column, text=text)
+
+    def _sort_key(self, repo: dict[str, Any], column: SortColumn) -> str:
+        if column == "name":
+            return (repo.get("name") or "").lower()
+        if column == "status":
+            return repo_status(repo).lower()
+        return repo.get("updated_at") or ""
+
+    def _sorted_repos(self) -> list[dict[str, Any]]:
+        return sorted(
+            self.repos,
+            key=lambda repo: self._sort_key(repo, self.sort_column),
+            reverse=self.sort_reverse,
+        )
+
+    def _sort_by(self, column: SortColumn) -> None:
+        if column not in SORTABLE_COLUMNS:
+            return
+        if self.sort_column == column:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.sort_column = column
+            self.sort_reverse = column == "updated"
+        self._configure_column_headings()
+        self._render_table()
 
     def _clear_table(self) -> None:
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-    def _populate_table(self, repos: list[dict[str, Any]]) -> None:
+    def _render_table(self) -> None:
         self._clear_table()
-        for repo in repos:
+        for index, repo in enumerate(self._sorted_repos()):
             updated = (repo.get("updated_at") or "")[:10]
+            row_tag = "even" if index % 2 == 0 else "odd"
             self.tree.insert(
                 "",
                 tk.END,
@@ -187,9 +472,9 @@ class GitHubReposApp:
                     updated,
                     repo.get("stargazers_count", 0),
                 ),
-                tags=(repo.get("html_url", ""),),
+                tags=(repo.get("html_url", ""), row_tag),
             )
-        self.status_var.set(f"{len(repos)} repositories loaded for @{self.handle}")
+        self.status_var.set(f"{len(self.repos)} repositories loaded for @{self.handle}")
 
     def _load_repositories(self) -> None:
         self.status_var.set("Loading repositories...")
@@ -214,7 +499,8 @@ class GitHubReposApp:
 
     def _on_load_success(self, repos: list[dict[str, Any]]) -> None:
         self.tree.configure(cursor="")
-        self._populate_table(repos)
+        self.repos = repos
+        self._render_table()
 
     def _on_load_error(self, message: str) -> None:
         self.tree.configure(cursor="")
@@ -234,6 +520,8 @@ class GitHubReposApp:
 
 def main() -> int:
     root = tk.Tk()
+    theme_mode = load_theme_mode()
+    apply_theme(root, ttk.Style(root), resolve_dark_mode(theme_mode))
     root.withdraw()
 
     handle = load_github_handle()
@@ -246,7 +534,7 @@ def main() -> int:
 
     load_dotenv(ENV_PATH)
     root.deiconify()
-    GitHubReposApp(root, handle)
+    GitHubReposApp(root, handle, theme_mode)
     root.mainloop()
     return 0
 
